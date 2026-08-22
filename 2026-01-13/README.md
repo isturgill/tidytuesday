@@ -30,3 +30,6 @@ Thank you to Robert Muwanga, Data Enthusiast for curating this week's dataset.
 |country         |character |Country where this language is spoken. |
 
 Cleaning script scrapes `https://www.worldometers.info/geography/how-many-countries-in-africa/` and `https://en.wikipedia.org/wiki/Languages_of_Africa` and recommends processing with R package `rvest`.
+
+## Data processing and analysis
+Available at [tidytuesday_languages_of_africa.qmd](tidytuesday_languages_of_africa.qmd).
