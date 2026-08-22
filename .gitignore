@@ -4,3 +4,6 @@
 # Loose files
 !.gitignore
 !README.md
+
+# TidyTuesday projects
+!2026-01-13/
