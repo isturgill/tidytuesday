@@ -1,0 +1,6 @@
+# Ignore all
+*
+
+# Loose files
+!.gitignore
+!README.md
