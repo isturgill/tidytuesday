@@ -170,6 +170,13 @@ dat <- dat |>
 dat |> head()
 ```
 
+And then let's go ahead and save the data in case we want to reuse or distribute it.
+
+```{r}
+fs::dir_create("data")
+write_csv(dat, file = "data/africa.csv")
+```
+
 # Analysis  {#sec-analysis}
 
 Now, with our cleaned (though not perfect - see @sec-assumptions above), we are ready to perform some simple analyses to answer the questions asked in the @sec-intro.
