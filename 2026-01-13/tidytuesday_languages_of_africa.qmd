@@ -1,0 +1,307 @@
+---
+title: "TidyTuesday: The Languages of Africa"
+author: "Ian R. Sturgill"
+format:
+  html:
+    title-block-banner: true
+    theme: sandstone
+toc: true
+toc-location: left
+editor: visual
+execute:
+  df-print: kable
+  warning: false
+  message: false
+number-sections: true
+---
+
+# Introduction  {#sec-intro}
+
+From [TidyTuesday](https://github.com/rfordatascience/tidytuesday/blob/main/data/2026/2026-01-13):
+
+This week we're exploring data about popular languages spoken on the African
+continent. The dataset this week comes from the [Languages of Africa](https://en.wikipedia.org/wiki/Languages_of_Africa) page on Wikipedia.
+
+> The number of languages natively spoken in Africa is variously estimated (depending on the delineation of language vs. dialect) at between 1,250 and 2,100 and by some counts at over 3,000.
+
+The dataset is rich with information on the number of languages spoken across
+the continent. Some of the questions that could be thought of include:
+
+- Which country in Africa has the largest number of spoken languages?
+
+- Which family of languages has the highest density of speakers?
+
+- Are there any languages that cut across multiple countries?
+
+Can't wait to see the kind of visualisations that can be created!
+
+Thank you to Robert Muwanga, Data Enthusiast for curating this week's dataset.
+
+```{r}
+# GitHub link
+github <- "https://github.com/rfordatascience/tidytuesday/blob/main/data/2026/2026-01-13"
+```
+
+# Data acquisition and cleaning  {#sec-acquisition}
+
+## Target data dictionary  {#sec-dictionary}
+
+Below is the target format and data dictionary, as given by the author:
+
+`data/africa.csv`
+
+| variable | class | description |
+|:---------------|:---------------|:---------------------------------------|
+| language | character | Name of popular African language. |
+| family | character | Group of languages with similar ancestry, having similar vocabulary, phonetics and grammar. |
+| native_speakers | integer | Number of known native speakers of the language. |
+| country | character | Country where this language is spoken. |
+
+## Load libraries  {#sec-libraries}
+
+The author recommends using the R package `rvest` for scraping and parsing the web data, and we'll use tidyverse for the data cleaning. `rvest` should be installed at the same time you install the `tidyverse` metapackage, but is not automatically loaded with a call to `library(tidyverse`; it must be loaded separately.
+
+```{r}
+library(tidyverse)
+library(purrr)
+library(rvest)
+library(ggsci)
+```
+
+## Data scraping  {#sec-scraping}
+
+We are given two sources of data to use that will need to be scraped and cleaned. Let's go through them one at a time so we can understand what data we're pulling. Our eventual goal is to create a link between a list (or vector) of countries in Africa and data that contains: (1) which language belongs to which language family, (2) how many estimated native speakers there are for each language, and (3) which language(s) are spoken in which countries.
+
+### African countries  {#sec-countries}
+
+For the first data table creating a list of African countries, if we browse to the page, we can see that there are two separate tables. Therefore, when we call `rvest::html_table()`, we can expect to get back a list of tibbles.
+
+```{r}
+# Set data URL
+african_countries <- 
+  "https://www.worldometers.info/geography/how-many-countries-in-africa/"
+
+# Read in table(s) from the URL
+african_countries <- african_countries |>
+  read_html() |>
+  html_table()
+
+african_countries |> head()
+```
+
+Indeed, we get a list of tibbles of size 2, as expected. The second tibble includes "dependencies or other territories," so we'll focus on the first tibble, which includes just formal countries. The author also has specific domain (geography) knowledge to recognize that there's a small discrepancy between the datasets we'll be using. From worldometers to wikipedia, we have `Côte d'Ivoire = Ivory Coast` and `Cabo Verde = Cape Verde`. Rather than change the names directly, the author elected to add the two additional names to the country list. There are still 54 unique African countries, but the list is n=56 because there are two names for both of these countries.
+
+```{r}
+# The list of tibbles is not named, so we pluck the first one by index
+# Then pull the Country column and add the missing country names
+african_countries <- african_countries |>
+  pluck(1) |>
+  pull("Country") |>
+  append(c("Ivory Coast", "Cape Verde"))
+
+length(african_countries)
+```
+
+We now have our vector of African countries and can move on to the next dataset.
+
+### African languages  {#sec-languages}
+
+Because this is from a wikipedia link, there are a lot (32!) of included tables. The returned list doesn't include names, so we can look through the list to find the data we're looking for. Here, it happens to be the fifth tibble.
+
+```{r}
+# Set data URL
+african_languages <- "https://en.wikipedia.org/wiki/Languages_of_Africa"
+
+# Read in table(s) from the URL
+african_languages <- african_languages |>
+  read_html() |>
+  html_table()
+
+african_languages |> head(n = 5)
+```
+
+So let's pluck out the fifth tibble. Here, although we could keep all 5 columns of the tibble, the author has elected to keep just 4 (one column appears to have a lot of missing data and we don't need it for the questions that we want to answer).
+
+```{r}
+# Pluck the fifth tibble and also make the column names simpler to work with
+african_languages <- african_languages |>
+  pluck(5) |>
+  select(
+    language = Language,
+    family = Family,
+    native_speakers = `Native speakers within Africa (L1)`,
+    country = `Official status per country`
+  )
+
+african_languages |> head()
+```
+
+## Data cleaning  {#sec-cleaning}
+
+The author suggests some cleaning to make the data easier to work with. Here, we'll remove extraneous information after `" "` whitespaces in the columns and convert the `native_speakers` column to an integer format. Overall, we'll make a simplification and a major assumption about the `native_speakers`:
+
+#### Assumptions  {#sec-assumptions}
+
+1.  Any numeric range will be converted to just the first number in the range (e.g., the minimum value).
+2.  Where multiple countries are listed in `country` for a language, the same number of `native_speakers` is assigned to each country. This will double-count individuals for some questions we may want to ask, but we have no idea what proportion should be assigned to each. Alternatives may include dividing the number equally among all countries, or if you had the population sizes of each country, weighting estimates by the country populations. Here for simplicity and to follow the data given, we'll leave it as-is.
+
+```{r}
+#| warnings: false
+# For country, we first concatenate all the african_countries
+# with a "|" delimiter, which we'll use as a regex "OR" search pattern to extract
+country_regex <- str_c(african_countries, collapse = "|")
+
+# Here we grab the first substring separated by whitespace for family and 
+# native_speakers and then apply the country extraction, removing missing data
+dat <- african_languages |>
+  mutate(family = str_split_i(family, " ", 1),
+         native_speakers = str_split_i(native_speakers, " ", 1),
+         country = str_extract_all(country, country_regex)) |>
+  unnest(country) |>
+  filter(country != "" & !is.na(country))
+
+# Lastly, let's convert native_speakers to a numeric column
+# Let's also remove any introduced NA's and any duplicate rows
+dat <- dat |>
+  mutate(native_speakers = parse_number(native_speakers)) |>
+  drop_na() |>
+  distinct()
+
+dat |> head()
+```
+
+# Analysis  {#sec-analysis}
+
+Now, with our cleaned (though not perfect - see @sec-assumptions above), we are ready to perform some simple analyses to answer the questions asked in the @sec-intro.
+
+## Country with the most languages spoken
+
+```{r}
+# Group by and count country, then plot in descending order
+# We'll first show the summary table and then actually plot it
+dat |> 
+  group_by(country) |> 
+  summarize(num_languages = n()) |> 
+  arrange(desc(num_languages)) |>
+  slice(1:10)
+
+dat |> 
+  group_by(country) |> 
+  summarize(num_languages = n()) |> 
+  arrange(desc(num_languages)) |>
+  slice(1:10) |>
+  ggplot(aes(x = reorder(country, -num_languages), 
+             y = num_languages, 
+             fill = country)) +
+  geom_col() +
+  labs(title = "Top 10 African countries by most languages spoken",
+       subtitle = str_c("TidyTuesday: ", github),
+       x = NULL,
+       y = "Number of languages spoken") +
+  guides(fill = "none") + 
+  scale_fill_npg() +
+  theme_bw()
+```
+
+Here we can see that Cameroon appears to be the country with the most languages spoken (exactly 100!). Next is Congo at 80, then Nigeria at 74 to round out the top 3. We can also try to plot these data on a map of Africa, though it's not perfect; there are some country naming discrepancies that would take extra time to resolve. If this was for a formal analysis or publication, you may wish to take the extra time to resolve these discrepancies.
+
+```{r}
+# Get base world map data
+world_map <- map_data("world")
+
+# Process as before, but we'll need to adjust the Congo's name for the map database
+# Then plot as a geom_map centered around Africa
+dat |> 
+  group_by(country) |> 
+  summarize(num_languages = n()) |> 
+  arrange(desc(num_languages)) |> 
+  mutate(country = str_replace(country, 
+                               "Congo", 
+                               "Democratic Republic of the Congo")) |> 
+  ggplot(aes(map_id = country)) + 
+  geom_map(aes(fill=num_languages), map = world_map, color = "white", size = 0.1) + 
+  scale_fill_distiller(palette = "YlGnBu", na.value = "gray90") +
+  coord_fixed(ratio = 1.3, xlim = c(-20, 55), ylim = c(-35, 40)) +
+  theme_void()
+```
+
+## Family of language with the most speakers
+
+Next, let's look at which family of languages appears to have the most speakers. We know our data are flawed as noted in @sec-assumptions, so we'll incorrectly over-count. However, without knowing how to appropriately assign proportions to each country, the best we can do is either not attempt to ask this question until we can resolve that issue (probably for the best), or give an answer with an asterisk. Here, let's give the top 5 with the data we have.
+
+```{r}
+# Top 5 - first show the table and then plot as before
+dat |> 
+  group_by(family) |> 
+  summarize(num_speakers = sum(native_speakers)) |> 
+  arrange(desc(num_speakers)) |>
+  slice(1:5) 
+
+dat |> 
+  group_by(family) |> 
+  summarize(num_speakers = sum(native_speakers)) |> 
+  slice(1:5) |> 
+  ggplot(aes(x = reorder(family, -num_speakers), 
+             y = num_speakers,
+             fill = family)) + 
+  geom_col() + 
+  scale_y_log10() +
+  labs(title = "Top 5 language families spoken in Africa (*overcounted)",
+       subtitle = str_c("TidyTuesday: ", github),
+       x = NULL,
+       y = "Number of speakers (log10-scale, *overcounted)") +
+  guides(fill = "none") + 
+  scale_fill_npg() +
+  theme_bw()
+```
+
+Note that we're now in the log~10~-scale for the y-axis because of the massive differences in estimated numbers of speakers across language families. Also note another issue with the dataset that we didn't catch earlier in the data cleaning: there are actually two families that should be merged: `Afroasiatic = Afro-Asiatic`. Normally we'd just have to spend time looking closely at the data to notice data entry and tidying errors like this, or see them downstream in the results as we have now. If you wanted to correct this, you could first confirm that they are indeed identical categories that should be merged, and then run:
+
+```{r}
+dat <- dat |> 
+  mutate(family = str_replace(family, "Afro-Asiatic", "Afroasiatic")) 
+```
+
+And then you'd want to re-run any analyses that you had performed, this time using the corrected data.
+
+## Languages shared across multiple countries
+
+Lastly, we'll look at which languages are shared across multiple countries.
+
+```{r}
+dat |> 
+  group_by(language) |>
+  summarize(num_countries = n()) |>
+  arrange(desc(num_countries)) |>
+  slice(1:5)
+```
+
+Here we can see that Arabic and Fulani are the languages spoken across the largest number of countries.
+
+```{r}
+dat |> 
+  group_by(language) |>
+  summarize(num_countries = n()) |>
+  arrange(desc(num_countries)) |>
+  slice(1:5) |> 
+  ggplot(aes(x = reorder(language, -num_countries),
+             y = num_countries,
+             fill = language)) +
+  geom_col() + 
+  scale_y_log10() +
+  labs(title = "Top 5 languages spoken across African countries",
+       subtitle = str_c("TidyTuesday: ", github),
+       x = NULL,
+       y = "Number of countries") +
+  guides(fill = "none") + 
+  scale_fill_npg() +
+  theme_bw()
+```
+
+And that wraps up the TidyTuesday practice for the week of 2026-1-13.
+
+# sessionInfo
+
+```{r}
+sessionInfo()
+```
