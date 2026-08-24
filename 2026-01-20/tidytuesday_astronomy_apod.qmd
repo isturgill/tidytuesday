@@ -1,0 +1,162 @@
+---
+title: "TidyTuesday: Astronomy Picture of the Day"
+author: "Ian R. Sturgill"
+format:
+  html:
+    title-block-banner: true
+    theme: sandstone
+toc: true
+toc-location: left
+editor: visual
+execute:
+  df-print: kable
+  warning: false
+  message: false
+number-sections: true
+---
+
+# Introduction {#sec-intro}
+
+From the TidyTuesday README for 2026-01-20:
+
+This week we're exploring the Astronomy Picture of the Day (APOD) archive. APOD is a popular NASA website featuring daily astronomy related images with a scientific explanation.\
+Each day a different image or photograph of our universe is featured, along with a brief explanation. This APOD archive contains image information from the 2007 - 2025, pulled together into the `astropic` R package.
+
+- What types of objects are most common in the archive?
+- Are any images posted more than once?
+
+Thank you to [Erin Grand](https://github.com/eringrand) for curating this week's dataset.
+
+# Data cleaning {#sec-cleaning}
+
+## Load libraries {#sec-libraries}
+
+Here, the original prepared data came from a package installed via GitHub. Alternatively, you can install with `tidytuesdayR`.
+
+```{r}
+# remotes::install_github("eringrand/astropic")
+# Optional: install.packages("tidytuesdayR")
+library(tidyverse)
+library(ggsci)
+library(astropic)
+# library(tidytuesdayR)
+```
+
+## Load in original data {#sec-data}
+
+Here we'll choose to work via the original `astropic` library to load the `hist_apod` astronomy data:
+
+```{r}
+# Load in data as a tibble
+data("hist_apod")
+
+hist_apod <- hist_apod |>
+  as_tibble()
+
+# Preview column data, truncating the very long explanations
+hist_apod |> 
+  mutate(explanation = str_trunc(explanation, width = 20)) |>
+  head()
+```
+
+The author recommends removing the `service_version` column, which just contains the value `v1` for every row. Let's also filter out rows that don't have data we need to answer the two questions presented in the @sec-intro, specifically: `media_type` and `title`.
+
+```{r}
+# Remove unneeded service_version column
+# Then, filter to remove rows with missing data needed for our analyses
+hist_apod <- hist_apod |>
+  select(-service_version) |>
+  filter(!is.na(media_type) & !is.na(title))
+```
+
+## Assumptions {#sec-assumptions}
+
+Now, we should be good to go, noting a couple of assumptions:
+
+1.  The media type is accurately recorded and "other" is genuinely a non-image, non-video type, rather than a collection or some other overlap with those categories.
+2.  If an image was posted more than once, it would have the exact same title each time it was posted.
+
+# Data analyses {#sec-analyses}
+
+Let's set a few variables for later plot labels:
+
+```{r}
+# URL for the 2026-01-20 dataset
+github_link <- "https://github.com/rfordatascience/tidytuesday/blob/main/data/2026/2026-01-20"
+
+tidy_tuesday <- str_c("TidyTuesday: ", github_link)
+```
+
+## Most common object types {#sec-object-types}
+
+Let's first take a look at the most common object types (`media_type`):
+
+```{r}
+data_title <- "Most frequent media types in the Astronomy Picture of the Day Dataset"
+
+# Show the tibble first
+hist_apod |>
+  summarize(num_media = n(), .by = media_type) |>
+  arrange(desc(num_media)) |>
+  head()
+
+# Now plot the data
+hist_apod |>
+  summarize(num_media = n(), .by = media_type) |>
+  arrange(desc(num_media)) |>
+  ggplot(aes(x = reorder(media_type, -num_media), 
+             y = num_media,
+             fill = media_type)) +
+  geom_col() +
+  scale_fill_npg() +
+  guides(fill = "none") +
+  labs(title = data_title,
+       subtitle = tidy_tuesday,
+       x = NULL,
+       y = "Number of media objects in dataset") +
+  theme_bw()
+```
+
+Here we can see that the most common media type, vastly outnumbering the other media types, is "image," which makes sense – this is the Astronomy Picture of the Day dataset, after all.
+
+## Most re-posted images {#sec-re-posted}
+
+Now let's see what the most re-posted images are, keeping in mind assumption #2 (@sec-assumptions).
+
+```{r}
+data_title2 <- "Top 4 most-frequently posted images in the Astronomy Picture of the Day Dataset"
+
+# Show the top 10 in the tibble
+hist_apod |>
+  summarize(num_title = n(), .by = title) |>
+  arrange(desc(num_title)) |>
+  head()
+
+# Plot the top 4 (many ties at 8 re-postings)
+# Wrap the title text so it doesn't overlap in the plot
+hist_apod |>
+  summarize(num_title = n(), .by = title) |>
+  arrange(desc(num_title)) |>
+  slice(1:4) |>
+  ggplot(aes(x = reorder(str_wrap(title, width = 20), -num_title), 
+             y = num_title,
+             fill = title)) +
+  geom_col() +
+  scale_y_continuous(breaks = seq(0, 10, by = 1)) +
+  scale_fill_npg() + 
+  guides(fill = "none") +
+  labs(title = data_title,
+       subtitle = tidy_tuesday,
+       x = NULL,
+       y = "Number of times posted") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme_bw()
+```
+
+The winner of most-popular (most re-posted) image is "The Horsehead Nebula," at 11 posts.
+
+# sessionInfo() {#sec-sessioninfo}
+
+```{r}
+sessionInfo()
+```
