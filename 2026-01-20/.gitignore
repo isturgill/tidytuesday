@@ -1,0 +1,15 @@
+# Ignore all
+*
+
+# Loose files
+!.gitignore
+!README.md
+!tidytuesday_astronomy_apod.qmd
+!tidytuesday_astronomy_apod.html
+
+# renv
+!renv.lock
+!.Rprofile
+!renv/
+!renv/activate.R
+!renv/settings.json
